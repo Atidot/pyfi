@@ -44,7 +44,7 @@ First, let's see an example
       sin_product :: Float -> Float -> IO Float
       sin_product = defVVV "def export(x, y): from math import sin; return sin(x*y)
       
-  Where `defVVV` is used to denote that the python function will take two arguments by Value and return a Value. But while `defVV` and `defVVV` let us easily wrap python functions, they come at a cost. Any variables that are passed to and from the python function must be serialized into a json string and then deserialized. At some level, this cost is inevitable. Using haskell data in python is going to requre instantiating python objects, which will require replicating memory. But if one is passing the same data into python again and again, it shouldn't be necessary to repeatedly serialize. Also, not every python data structure will implement json encoding and decoding. That's why pyfi supports passing around direct references to python objects:
+  Where `defVVV` is used to denote that the python function will take two arguments by Value and return a Value. But while `defVV` and `defVVV` let us easily wrap python functions, they come at a cost. Any variables that are passed to and from the python function must be serialized into a json string and then deserialized. At some level, this cost is inevitable. Using haskell data in python is going to require instantiating python objects, which will require replicating memory. But if one is passing the same data into python again and again, it shouldn't be necessary to repeatedly serialize. Also, not every python data structure will implement json encoding and decoding. That's why pyfi supports passing around direct references to python objects:
   
     {-# LANGUAGE QuasiQuotes #-}
     -- ShortestPaths.hs
