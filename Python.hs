@@ -36,6 +36,7 @@ module Python(
     defVVOV,
     defVVVO,
     defVVVV,
+    defVVVVV,
     PyObject,
     PythonException,
     exceptionType,
@@ -49,7 +50,7 @@ import Foreign (FunPtr, ForeignPtr)
 import Foreign.Ptr (Ptr, nullPtr)
 import Foreign.ForeignPtr (newForeignPtr, withForeignPtr)
 import Foreign.Marshal.Alloc (free)
-import Data.Aeson (FromJSON, ToJSON, toJSON, encode, decode)
+import Data.Aeson (FromJSON, ToJSON, toJSON, encode, eitherDecode)
 import Data.ByteString.Lazy.Char8 (unpack, pack)
 import Data.IORef (IORef, newIORef, writeIORef, readIORef)
 import System.IO.Unsafe (unsafePerformIO)
@@ -67,11 +68,11 @@ data P
 type RawPyObject = (Ptr P)
 data PyObject a = PyObject (ForeignPtr P) deriving Show
 
-data PythonException = PyException { exceptionType :: String, exceptionValue :: String } | DecodeException 
+data PythonException = PyException { exceptionType :: String, exceptionValue :: String } | DecodeException { exceptionValue :: String }
     deriving (Typeable)
 
 instance Show PythonException where
-    show DecodeException = "DecodeException"
+    show (DecodeException x) = "DecodeException " ++ x
     show x = exceptionType x ++ "\n" ++ exceptionValue x
 
 instance Exception PythonException
@@ -90,7 +91,7 @@ foreign import ccall "Py_BuildValue" py_BuildValueObject2 :: CString -> RawPyObj
 foreign import ccall "Py_BuildValue" py_BuildValueObject3 :: CString -> RawPyObject -> RawPyObject -> RawPyObject -> IO (RawPyObject)
 foreign import ccall "Py_BuildValue" py_BuildValueObject4 :: CString -> RawPyObject -> RawPyObject -> RawPyObject -> RawPyObject -> IO (RawPyObject)
 foreign import ccall "PyObject_CallObject" pyObject_CallObject :: RawPyObject -> RawPyObject -> IO (RawPyObject)
-foreign import ccall "PyString_AsString" pyString_AsString :: RawPyObject -> IO CString
+foreign import ccall "PyUnicode_AsUTF8" pyUnicode_AsUTF8 :: RawPyObject -> IO CString
 foreign import ccall unsafe "gimmeFunc" gimmeFunc :: CInt -> IO (FunPtr (RawPyObject -> IO ()))
 foreign import ccall "checkError" c_checkError :: IO CString
 
@@ -102,7 +103,7 @@ withCString2 s1 s2 f = withCString s1 f' where
     f' cs1 = withCString s2 (f cs1)
 
 execInModule :: String -> String -> IO ()
-execInModule moduleName payload = 
+execInModule moduleName payload =
     withCString2 payload moduleName c_execInModule
 
 parseException :: String -> PythonException
@@ -126,7 +127,7 @@ initialize = do
   py_initialize
 
 getObjectInModule :: String -> String -> IO (RawPyObject)
-getObjectInModule moduleName objectName = 
+getObjectInModule moduleName objectName =
     withCString2 objectName moduleName c_getObjectInModule
 
 getObject :: String -> IO (RawPyObject)
@@ -162,26 +163,24 @@ def jsonfunc(argformats):
 hash :: String -> String
 hash contents = show . md5 $ pack contents
 
-mydecode :: (FromJSON a) => String -> Maybe a
+mydecode :: (FromJSON a) => String -> Either String a
 mydecode s = do
-    x <- decode . pack . (\x -> "[" ++ x ++ "]") $ s
+    x <- eitherDecode . pack . (\x -> "[" ++ x ++ "]") $ s
     return $ head x -- This code is dangerous. prelude's `head` isnt safe
 
 
 toPyObject :: (ToJSON a) => a -> IO (PyObject b)
 toPyObject x = do
     y <- return . unpack . encode $ x
-    p <- withCString "s" (\cs -> 
-           withCString y (\cy -> 
+    p <- withCString "s" (\cs ->
+           withCString y (\cy ->
              py_BuildValueString cs cy) )
     newForeignPyPtr p
 
 fromPyObject :: (FromJSON a) => PyObject b -> IO a
 fromPyObject (PyObject fr) = do
-    r2 <- withForeignPtr fr $ \r -> peekCString =<< pyString_AsString r
-    return $ case mydecode r2 of
-               Just x -> x
-               Nothing -> throw $ DecodeException
+    r2 <- withForeignPtr fr $ \r -> peekCString =<< pyUnicode_AsUTF8 r
+    either (throw . DecodeException) return $ mydecode r2
 
 getFunc :: String -> String -> IO RawPyObject
 getFunc s argTypes = do
@@ -192,7 +191,7 @@ getFunc s argTypes = do
     else initialize
     case Map.lookup key currentModules of
       Just p -> return p
-      Nothing -> do 
+      Nothing -> do
         execInModule key jsonfunc
         execInModule key s
         execInModule key $ "export = jsonfunc('" ++ argTypes ++ "')(export)"
@@ -218,7 +217,7 @@ def1 s argTypes = do
 def2 :: String -> String -> (PyObject a) -> IO (PyObject b)
 def2 s argTypes (PyObject fx1) = do
     f <- getFunc s argTypes
-    p1 <- withForeignPtr fx1 $ \x1 -> withCString "(O)" (\cs -> py_BuildValueObject cs x1) 
+    p1 <- withForeignPtr fx1 $ \x1 -> withCString "(O)" (\cs -> py_BuildValueObject cs x1)
     (PyObject fp) <- newForeignPyPtr p1
     r <- withForeignPtr fp $ \p -> pyObject_CallObject f p
     checkError s
@@ -229,7 +228,7 @@ def3 s argTypes (PyObject fx1) (PyObject fx2) = do
     f <- getFunc s argTypes
     p1 <- withForeignPtr fx1 $ \x1 -> (
         withForeignPtr fx2 $ \x2 -> (
-            withCString "(OO)" (\cs -> py_BuildValueObject2 cs x1 x2) 
+            withCString "(OO)" (\cs -> py_BuildValueObject2 cs x1 x2)
         ))
     (PyObject fp) <- newForeignPyPtr p1
     r <- withForeignPtr fp $ \p -> pyObject_CallObject f p
@@ -242,7 +241,7 @@ def4 s argTypes (PyObject fx1) (PyObject fx2) (PyObject fx3) = do
     p1 <- withForeignPtr fx1 $ \x1 -> (
         withForeignPtr fx2 $ \x2 -> (
             withForeignPtr fx3 $ \x3 -> (
-                withCString "(OOO)" (\cs -> py_BuildValueObject3 cs x1 x2 x3) 
+                withCString "(OOO)" (\cs -> py_BuildValueObject3 cs x1 x2 x3)
         )))
     (PyObject fp) <- newForeignPyPtr p1
     r <- withForeignPtr fp $ \p -> pyObject_CallObject f p
@@ -256,7 +255,7 @@ def5 s argTypes (PyObject fx1) (PyObject fx2) (PyObject fx3) (PyObject fx4) = do
         withForeignPtr fx2 $ \x2 -> (
             withForeignPtr fx3 $ \x3 -> (
                 withForeignPtr fx4 $ \x4 -> (
-                    withCString "(OOOO)" (\cs -> py_BuildValueObject4 cs x1 x2 x3 x4) 
+                    withCString "(OOOO)" (\cs -> py_BuildValueObject4 cs x1 x2 x3 x4)
         ))))
     (PyObject fp) <- newForeignPyPtr p1
     r <- withForeignPtr fp $ \p -> pyObject_CallObject f p
@@ -265,12 +264,12 @@ def5 s argTypes (PyObject fx1) (PyObject fx2) (PyObject fx3) (PyObject fx4) = do
 
 defO :: String -> IO (PyObject b)
 defO s  = do
-    fr <- def1 s "O" 
+    fr <- def1 s "O"
     return fr
 
 defV :: (FromJSON b) => String -> IO b
 defV s  = do
-    fr <- def1 s "V" 
+    fr <- def1 s "V"
     b <- fromPyObject fr
     return b
 
@@ -459,5 +458,15 @@ defVVVV s input1 input2 input3 = do
     x2 <- toPyObject input2
     x3 <- toPyObject input3
     fr <- def4 s "VVVV" x1 x2 x3
+    b <- fromPyObject fr
+    return b
+
+defVVVVV :: (ToJSON a1, ToJSON a2, ToJSON a3, ToJSON a4, FromJSON b) => String -> a1 -> a2 -> a3 -> a4 -> IO b
+defVVVVV s input1 input2 input3 input4 = do
+    x1 <- toPyObject input1
+    x2 <- toPyObject input2
+    x3 <- toPyObject input3
+    x4 <- toPyObject input4
+    fr <- def5 s "VVVVV" x1 x2 x3 x4
     b <- fromPyObject fr
     return b

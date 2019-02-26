@@ -20,8 +20,8 @@ library
   -- main-is:             Main.hs
   exposed-modules:     Python, Str
   other-extensions:    TemplateHaskell, ForeignFunctionInterface, QuasiQuotes, OverloadedStrings
-  build-depends:       base >=4.6, template-haskell >=2.8, aeson >=0.8 && <0.9, bytestring >=0.10 && <0.11, containers >= 0.5, pureMD5 >= 2.0
+  build-depends:       base >=4.6, template-haskell >=2.8, aeson >=0.8, bytestring >=0.10 && <0.11, containers >= 0.5, pureMD5 >= 2.0
   -- hs-source-dirs:
   default-language:    Haskell2010
-  PkgConfig-Depends:   python
+  PkgConfig-Depends:   python-3.6
   c-sources:           cdefs.c

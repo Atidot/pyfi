@@ -45,8 +45,8 @@ char* checkError() {
     PyErr_Fetch( &exc_typ, &exc_val, &exc_tb);
     PyObject *exc_typ_string = PyObject_Str(exc_typ);
     PyObject *exc_val_string = PyObject_Str(exc_val);
-    char *exc_typ_tmp = PyString_AsString(exc_typ_string);
-    char *exc_val_tmp = PyString_AsString(exc_val_string);
+    char *exc_typ_tmp = PyUnicode_AsUTF8(exc_typ_string);
+    char *exc_val_tmp = PyUnicode_AsUTF8(exc_val_string);
     char *exc = malloc(strlen(exc_val_tmp) + strlen(exc_typ_tmp) + 1);
     strcpy(exc, exc_typ_tmp);
     strcat(exc, ",");
@@ -76,7 +76,7 @@ void execInModule(const char* payload, const char* moduleName) {
                                          globals,
                                          globals,
                                          NULL);
-    
+
     if ( PyErr_Occurred() ) {PyErr_Print();PyErr_Clear();}
     return;
 }
